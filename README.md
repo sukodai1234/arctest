@@ -18,7 +18,7 @@ bun install
 bun run dev
 ```
 
-Other scripts: `bun run build`, `bun run check` (lint and typecheck).
+Build for production with `bunx vite build`. Run `bun run check` for lint and typecheck.
 
 ### Environment variables
 
