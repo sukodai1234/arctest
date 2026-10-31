@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /claim
+
+Sitemap: https://arc1pay.netlify.app/sitemap.xml

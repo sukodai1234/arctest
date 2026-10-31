@@ -25,3 +25,7 @@ Build for production with `bunx vite build`. Run `bun run check` for lint and ty
 - `VITE_ARC_TESTNET_EURC_ADDRESS`: EURC token address on Arc Testnet, used to show your EURC balance in the Swap tool (optional; the swap itself works without it).
 - `VITE_CROWDFUND_ADDRESS`: address of the deployed fundraising contract (`contracts/Crowdfund.sol`) on Arc Testnet. Until it is set, the Fundraiser tool shows that fundraising is not live yet.
 - `VITE_ARC_TESTNET_CIRBTC_ADDRESS`: cirBTC token address on Arc Testnet, used to show your cirBTC balance in the Swap tool (optional).
+
+## Security
+
+The `public/_headers` file sets browser security headers (content security policy, no sniffing, HSTS, limited permissions) and `public/robots.txt` keeps the private gift-claim page out of search engines. Traffic filtering (rate limits, bot and DDoS protection) is handled by your hosting provider, not by the app.

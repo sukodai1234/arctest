@@ -1,2 +1,4 @@
 /.well-known/discord  /wellknown/discord  200!
+/favicon.ico  /favicon.svg  200!
+/.netlify/*  /404.html  404!
 /*  /index.html  200
