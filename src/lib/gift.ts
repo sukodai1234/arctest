@@ -2,6 +2,7 @@ import { createPublicClient, createWalletClient, erc20Abi, http } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { arcTestnet } from 'viem/chains'
 import { requireChain } from '@/onchain-facts'
+import { Amount } from '@/onchain-money'
 import { ARC_CHAIN_ID, USDC_ADDRESS } from '@/lib/arc'
 
 /**
@@ -13,6 +14,8 @@ import { ARC_CHAIN_ID, USDC_ADDRESS } from '@/lib/arc'
 /** USDC set aside inside every gift to pay the network fee of the claim. Unused fee goes to the claimer. */
 export const GIFT_FEE_RESERVE = '0.01'
 export const GIFT_MIN_AMOUNT = '0.02'
+/** Each gift is its own wallet confirmation, so a single run is capped. */
+export const GIFT_MAX_COUNT = 10
 
 const STORAGE_KEY = 'arcpay-gifts-v1'
 const KEY_PATTERN = /^[0-9a-fA-F]{64}$/
@@ -137,4 +140,17 @@ export async function sweepGift(key: string, to: `0x${string}`): Promise<`0x${st
   })
   await client.waitForTransactionReceipt({ hash })
   return hash
+}
+
+/** Splits `total` into `n` random parts, each at least `min`, that add up exactly to `total` (lucky-money style). */
+export function randomSplit(total: Amount, n: number, min: Amount): Amount[] {
+  const pool = total.raw - min.raw * BigInt(n)
+  if (pool < 0n) throw new Error('TOTAL_TOO_SMALL')
+  const words = crypto.getRandomValues(new Uint32Array(n))
+  const weights = Array.from(words, (w) => BigInt(w) + 1n)
+  const sum = weights.reduce((a, b) => a + b, 0n)
+  const shares = weights.map((w) => (pool * w) / sum)
+  const assigned = shares.reduce((a, b) => a + b, 0n)
+  shares[n - 1] += pool - assigned
+  return shares.map((share) => Amount.fromRaw(min.raw + share, total.decimals))
 }

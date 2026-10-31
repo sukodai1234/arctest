@@ -2,7 +2,7 @@ import { useT } from '@/lib/i18n'
 import { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeftRight, FileText, Gift, HandCoins, QrCode, Repeat2, Store, Users, Wallet, X } from 'lucide-react'
+import { ArrowLeftRight, FileText, Gift, Target, HandCoins, QrCode, Repeat2, Store, Users, Wallet, X } from 'lucide-react'
 import { Header } from '@/components/Header'
 import { BalanceCard } from '@/components/BalanceCard'
 import { SendCard } from '@/components/SendCard'
@@ -18,6 +18,8 @@ import { BatchCard } from '@/components/BatchCard'
 import { InvoicesCard } from '@/components/InvoicesCard'
 import { SwapCard } from '@/components/SwapCard'
 import { GiftCard } from '@/components/GiftCard'
+import { FundCard } from '@/components/FundCard'
+import { PayFromNetwork } from '@/components/PayFromNetwork'
 import { ClaimGift } from '@/components/ClaimGift'
 import { isClaimRoute } from '@/lib/gift'
 import { RecentActivity } from '@/components/RecentActivity'
@@ -29,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'tip', label: 'Tip', hint: 'Preset tip amounts', icon: <HandCoins className="size-4" /> },
   { id: 'request', label: 'Request payment', hint: 'Link and QR code', icon: <QrCode className="size-4" /> },
   { id: 'shop', label: 'Shop', hint: 'Store payment page', icon: <Store className="size-4" /> },
+  { id: 'fund', label: 'Fundraiser', hint: 'Goal, deadline, refunds', icon: <Target className="size-4" /> },
   { id: 'gift', label: 'Gift', hint: 'One-time claim link', icon: <Gift className="size-4" /> },
   { id: 'invoices', label: 'Invoices', hint: 'Numbered, with due dates', icon: <FileText className="size-4" /> },
   { id: 'batch', label: 'Batch send', hint: 'Pay many people at once', icon: <Users className="size-4" /> },
@@ -37,7 +40,9 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 function initialFeature(): FeatureId | null {
-  return new URLSearchParams(window.location.search).has('tipTo') ? 'tip' : null
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('campaign')) return 'fund'
+  return params.has('tipTo') ? 'tip' : null
 }
 
 export default function App() {
@@ -154,6 +159,7 @@ function MainApp() {
           <main className="mx-auto flex w-full min-w-0 max-w-md flex-col gap-4 pb-20 lg:mx-0 lg:max-w-none">
             <BalanceCard />
             <SendCard onSent={handleSent} />
+            <InvoicePayOptions />
             <Activity />
           </main>
 
@@ -166,6 +172,7 @@ function MainApp() {
                   {activeItem.id === 'tip' && <TipCard onSent={handleSent} />}
                   {activeItem.id === 'request' && <RequestCard />}
                   {activeItem.id === 'shop' && <ShopCard />}
+                  {activeItem.id === 'fund' && <FundCard />}
                   {activeItem.id === 'gift' && <GiftCard />}
                   {activeItem.id === 'invoices' && <InvoicesCard />}
                   {activeItem.id === 'batch' && <BatchCard />}
@@ -193,4 +200,13 @@ function MainApp() {
       <AddNetworkButton />
     </div>
   )
+}
+
+/** Shown on an invoice payment link: pay from another network instead of Arc. */
+function InvoicePayOptions() {
+  const params = new URLSearchParams(window.location.search)
+  const to = params.get('to')
+  const amount = params.get('amount')
+  if (!params.get('inv') || !to || !amount) return null
+  return <PayFromNetwork to={to} amount={amount} />
 }

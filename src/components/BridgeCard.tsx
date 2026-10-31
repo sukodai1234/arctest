@@ -12,7 +12,7 @@ import { Amount } from '@/onchain-money'
 import { getUsdc } from '@/onchain-facts'
 import { HISTORY_KEY } from '@/hooks/useTransferHistory'
 
-const NETWORKS = [
+export const NETWORKS = [
   { id: 'Arc_Testnet', label: 'Arc Testnet', chainId: 5042002 },
   { id: 'Base_Sepolia', label: 'Base Sepolia', chainId: 84532 },
   { id: 'Ethereum_Sepolia', label: 'Ethereum Sepolia', chainId: 11155111 },
@@ -22,7 +22,7 @@ const NETWORKS = [
   { id: 'Polygon_Amoy_Testnet', label: 'Polygon Amoy', chainId: 80002 },
 ] as const
 
-type NetworkId = (typeof NETWORKS)[number]['id']
+export type NetworkId = (typeof NETWORKS)[number]['id']
 
 interface StepView {
   name: string

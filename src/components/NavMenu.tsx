@@ -2,7 +2,7 @@ import { Preferences } from './Preferences'
 import { useT } from '@/lib/i18n'
 import type { ReactNode } from 'react'
 
-export type FeatureId = 'wallet' | 'tip' | 'request' | 'shop' | 'gift' | 'invoices' | 'batch' | 'swap' | 'bridge'
+export type FeatureId = 'wallet' | 'tip' | 'request' | 'shop' | 'fund' | 'gift' | 'invoices' | 'batch' | 'swap' | 'bridge'
 
 export interface NavItem {
   id: FeatureId

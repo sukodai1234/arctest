@@ -18,6 +18,9 @@ import {
 import { useShareBase } from '@/hooks/useShareLink'
 import { useTransferHistory } from '@/hooks/useTransferHistory'
 
+// A payer who bridges in adds the bridge fee on top, so a small overpayment still counts.
+const PAID_WINDOW = 250000n // 0.25 USDC (6 decimals)
+
 export function InvoicesCard() {
   const { t, locale } = useI18n()
   const { address, isConnected } = useAccount()
@@ -41,7 +44,7 @@ export function InvoicesCard() {
       .sort((x, y) => x.createdAt - y.createdAt)
     for (const inv of open) {
       const want = parseAmount(ARC_CHAIN_ID, inv.amount).raw
-      const hit = incoming.find((tx) => tx.raw === want && tx.timestamp >= inv.createdAt && !used.has(tx.hash))
+      const hit = incoming.find((tx) => tx.raw >= want && tx.raw <= want + PAID_WINDOW && tx.timestamp >= inv.createdAt && !used.has(tx.hash))
       if (!hit) continue
       used.add(hit.hash)
       paid.set(inv.id, hit.hash)
@@ -249,7 +252,7 @@ export function InvoicesCard() {
         </ul>
       )}
       <p className="mt-3 text-xs" style={{ color: 'var(--subtle)' }}>
-        {t('An invoice shows as paid when a transfer of the exact amount arrives after it was created. Invoices are saved in this browser.')}
+        {t('An invoice shows as paid when a transfer of its amount (up to 0.25 USDC more, for bridge fees) arrives after it was created. Invoices are saved in this browser.')}
       </p>
     </section>
   )

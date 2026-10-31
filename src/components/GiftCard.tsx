@@ -11,10 +11,12 @@ import { ARC_CHAIN_ID, USDC_ADDRESS } from '@/lib/arc'
 import { useI18n } from '@/lib/i18n'
 import {
   GIFT_FEE_RESERVE,
+  GIFT_MAX_COUNT,
   GIFT_MIN_AMOUNT,
   giftLink,
   loadGifts,
   newGift,
+  randomSplit,
   readGiftBalance,
   saveGifts,
   sweepGift,
@@ -49,6 +51,10 @@ export function GiftCard() {
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [mode, setMode] = useState<'single' | 'many'>('single')
+  const [count, setCount] = useState('5')
+  const [split, setSplit] = useState<'equal' | 'random'>('equal')
+  const [batchIds, setBatchIds] = useState<string[]>([])
 
   const decimals = balance?.decimals ?? 6
   const reserve = Amount.parse(GIFT_FEE_RESERVE, decimals)
@@ -63,10 +69,29 @@ export function GiftCard() {
     }
   }, [amount, decimals])
 
-  const total = parsed ? parsed.add(reserve) : undefined
-  const tooSmall = Boolean(parsed && parsed.lt(minimum))
+  const n = mode === 'single' ? 1 : Math.min(Math.max(Math.floor(Number(count)) || 0, 0), GIFT_MAX_COUNT)
+  const countValid = mode === 'single' || (n >= 2 && n <= GIFT_MAX_COUNT)
+
+  // The amount of each gift in this run (before the claim-fee reserve).
+  const amounts = useMemo(() => {
+    if (!parsed || !countValid) return undefined
+    if (mode === 'single' || split === 'equal') return Array.from({ length: n }, () => parsed)
+    try {
+      return randomSplit(parsed, n, minimum)
+    } catch {
+      return undefined
+    }
+  }, [parsed, countValid, mode, split, n, minimum])
+
+  const total = useMemo(() => {
+    if (!parsed || !countValid) return undefined
+    const gifts = mode === 'single' || split === 'equal' ? parsed.mul(BigInt(n)) : parsed
+    return gifts.add(reserve.mul(BigInt(n)))
+  }, [parsed, countValid, mode, split, n, reserve])
+  const smallest = mode === 'many' && split === 'random' ? minimum.mul(BigInt(n)) : minimum
+  const tooSmall = Boolean(parsed && parsed.lt(smallest))
   const insufficient = Boolean(total && balance && total.gt(balance))
-  const canCreate = Boolean(parsed) && !tooSmall && !insufficient && !creating && isConnected
+  const canCreate = Boolean(parsed) && countValid && !tooSmall && !insufficient && !creating && isConnected
 
   const mine = useMemo(
     () => gifts.filter((g) => address && g.from?.toLowerCase() === address.toLowerCase()).sort((a, b) => b.createdAt - a.createdAt),
@@ -94,36 +119,54 @@ export function GiftCard() {
   }
 
   const create = async () => {
-    if (!canCreate || !parsed || !total || !address) return
+    if (!canCreate || !amounts || !address) return
+    // Fix the amounts now: a random split must not change between the preview and the sends.
+    const plan = amounts
     setCreating(true)
     setError(null)
-    const gift = newGift(parsed.toString(), address)
-    // Save the key BEFORE sending funds, so a closed tab can never strand money.
-    persist([...gifts, gift])
-    let sent = false
+    setHighlightId(null)
+    setBatchIds([])
+    const made: string[] = []
     try {
       if (chainId !== ARC_CHAIN_ID) await switchChainAsync({ chainId: ARC_CHAIN_ID })
-      const hash = await writeContractAsync({
-        address: USDC_ADDRESS,
-        abi: erc20Abi,
-        functionName: 'transfer',
-        args: [gift.address, total.raw],
-        chainId: ARC_CHAIN_ID,
-      })
-      sent = true
-      const receipt = await waitForTransactionReceipt(config, { hash, chainId: ARC_CHAIN_ID })
-      if (receipt.status !== 'success') throw new Error('failed')
-      persist(loadGifts().map((g) => (g.id === gift.id ? { ...g, txHash: hash } : g)))
-      setHighlightId(gift.id)
+      for (const each of plan) {
+        const gift = newGift(each.toString(), address)
+        // Save the key BEFORE sending funds, so a closed tab can never strand money.
+        persist([...loadGifts(), gift])
+        let sent = false
+        try {
+          const hash = await writeContractAsync({
+            address: USDC_ADDRESS,
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [gift.address, each.add(reserve).raw],
+            chainId: ARC_CHAIN_ID,
+          })
+          sent = true
+          const receipt = await waitForTransactionReceipt(config, { hash, chainId: ARC_CHAIN_ID })
+          if (receipt.status !== 'success') throw new Error('failed')
+          persist(loadGifts().map((g) => (g.id === gift.id ? { ...g, txHash: hash } : g)))
+          made.push(gift.id)
+        } catch (e) {
+          if (!sent) persist(loadGifts().filter((g) => g.id !== gift.id))
+          throw e
+        }
+      }
+      if (made.length === 1) setHighlightId(made[0])
+      else setBatchIds(made)
       setAmount('')
-      toast.success(t('Gift link ready'))
-      void refetch()
-      void queryClient.invalidateQueries({ queryKey: [HISTORY_KEY] })
+      toast.success(made.length > 1 ? t('{count} gift links ready', { count: made.length }) : t('Gift link ready'))
     } catch (e) {
-      if (!sent) persist(loadGifts().filter((g) => g.id !== gift.id))
-      if (!isRejection(e)) setError('The gift could not be created. Please try again.')
+      if (made.length > 0) {
+        setBatchIds(made)
+        setError('Some gifts were created before the run stopped. The rest were not sent.')
+      } else if (!isRejection(e)) {
+        setError('The gift could not be created. Please try again.')
+      }
     } finally {
       setCreating(false)
+      void refetch()
+      void queryClient.invalidateQueries({ queryKey: [HISTORY_KEY] })
     }
   }
 
@@ -137,6 +180,20 @@ export function GiftCard() {
       setCopiedId(g.id)
       toast.success(t('Gift link copied'))
       setTimeout(() => setCopiedId(null), 1800)
+    } catch {
+      toast.error(t('Could not copy. Select the link and copy it manually.'))
+    }
+  }
+
+  const copyAll = async () => {
+    if (!base) return
+    const lines = batchIds.flatMap((id, i) => {
+      const g = mine.find((x) => x.id === id)
+      return g ? [`${t('Gift {n}', { n: i + 1 })} (${g.amount} USDC): ${giftLink(base, g.key)}`] : []
+    })
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      toast.success(t('Gift link copied'))
     } catch {
       toast.error(t('Could not copy. Select the link and copy it manually.'))
     }
@@ -195,8 +252,63 @@ export function GiftCard() {
         </p>
       </div>
 
+      <div role="group" aria-label={t('How many gifts')} className="mb-3 flex gap-1 rounded-2xl p-1" style={{ background: 'var(--surface-muted)' }}>
+        {(['single', 'many'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            aria-pressed={mode === m}
+            disabled={creating}
+            onClick={() => setMode(m)}
+            className="min-h-10 flex-1 rounded-xl text-sm font-semibold transition-colors"
+            style={mode === m ? { background: 'var(--accent)', color: 'var(--on-accent)' } : { color: 'var(--ink-2)' }}
+          >
+            {m === 'single' ? t('One gift') : t('Several gifts')}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'many' && (
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="gift-count">
+              {t('Number of gifts (2 to {max})', { max: GIFT_MAX_COUNT })}
+            </label>
+            <div className="field glass-inner rounded-2xl px-4 py-3 transition-shadow">
+              <input
+                id="gift-count"
+                inputMode="numeric"
+                value={count}
+                disabled={creating}
+                onChange={(e) => {
+                  if (/^\d{0,2}$/.test(e.target.value)) setCount(e.target.value)
+                }}
+                className="display w-full bg-transparent text-xl font-bold tabular-nums outline-none"
+                style={{ color: 'var(--ink)' }}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="gift-split">
+              {t('Split')}
+            </label>
+            <select
+              id="gift-split"
+              value={split}
+              disabled={creating}
+              onChange={(e) => setSplit(e.target.value as 'equal' | 'random')}
+              className="glass-inner min-h-[3.25rem] w-full rounded-2xl px-3 text-sm font-semibold outline-none"
+              style={{ color: 'var(--ink)' }}
+            >
+              <option value="equal">{t('Same amount each')}</option>
+              <option value="random">{t('Random split of a total')}</option>
+            </select>
+          </div>
+        </div>
+      )}
+
       <label className="mb-1 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="gift-amount">
-        {t('Gift amount (USDC)')}
+        {mode === 'many' ? (split === 'random' ? t('Total to split (USDC)') : t('Amount per gift (USDC)')) : t('Gift amount (USDC)')}
       </label>
       <div className="field glass-inner rounded-2xl p-4 transition-shadow">
         <input
@@ -219,12 +331,18 @@ export function GiftCard() {
       </div>
       {tooSmall && (
         <p className="mt-2 text-xs" style={{ color: 'var(--danger)' }}>
-          {t('The minimum gift is {amount} USDC.', { amount: GIFT_MIN_AMOUNT })}
+          {t('The minimum gift is {amount} USDC.', { amount: mode === 'many' && split === 'random' ? smallest.toString() : GIFT_MIN_AMOUNT })}
         </p>
       )}
       <p className="mt-2 text-xs" style={{ color: 'var(--subtle)' }}>
         {t('You send the gift plus {fee} USDC for the claim network fee. Whatever is left of that fee goes to the person who claims.', { fee: GIFT_FEE_RESERVE })}
       </p>
+
+      {mode === 'many' && total && (
+        <p className="mt-2 text-xs font-semibold tabular-nums" style={{ color: 'var(--ink-2)' }}>
+          {t('You will send {total} USDC in {count} separate transfers, each confirmed in your wallet.', { total: total.toFixed(2), count: n })}
+        </p>
+      )}
 
       <div className="mt-4">
         {!isConnected ? (
@@ -253,7 +371,7 @@ export function GiftCard() {
             ) : insufficient ? (
               t('Insufficient balance')
             ) : (
-              t('Create gift link')
+              mode === 'many' ? t('Create {count} gift links', { count: n || 0 }) : t('Create gift link')
             )}
           </button>
         )}
@@ -295,6 +413,47 @@ export function GiftCard() {
               <Share2 className="size-4" /> {t('Share')}
             </button>
           </div>
+          <p className="mt-3 text-xs" style={{ color: 'var(--danger)' }}>
+            {t('Anyone who has this link can claim the gift. Send it privately and do not post it publicly.')}
+          </p>
+        </div>
+      )}
+
+      {batchIds.length > 0 && base && (
+        <div className="glass-inner mt-4 rounded-2xl p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--success)' }}>
+            <Check className="size-4" /> {t('{count} gift links ready', { count: batchIds.length })}
+          </div>
+          <ul className="mt-3 flex flex-col gap-1.5">
+            {batchIds.flatMap((id, i) => {
+              const g = mine.find((x) => x.id === id)
+              return g ? [{ g, i }] : []
+            }).map(({ g, i }) => (
+              <li key={g.id} className="flex items-center justify-between gap-2 rounded-xl px-3 py-2" style={{ background: 'var(--surface-muted)' }}>
+                <span className="text-sm tabular-nums" style={{ color: 'var(--ink-2)' }}>
+                  {t('Gift {n}', { n: i + 1 })} · {g.amount} USDC
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void copy(g)}
+                  aria-label={t('Copy gift link')}
+                  className="flex min-h-9 items-center gap-1 text-xs font-semibold"
+                  style={{ color: 'var(--accent-hover)' }}
+                >
+                  {copiedId === g.id ? <Check className="size-4" /> : <Copy className="size-4" />}
+                  {copiedId === g.id ? t('Copied') : t('Copy')}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={() => void copyAll()}
+            className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl text-sm font-semibold text-[color:var(--on-accent)]"
+            style={{ background: 'var(--accent)' }}
+          >
+            <Copy className="size-4" /> {t('Copy all links')}
+          </button>
           <p className="mt-3 text-xs" style={{ color: 'var(--danger)' }}>
             {t('Anyone who has this link can claim the gift. Send it privately and do not post it publicly.')}
           </p>
