@@ -29,3 +29,7 @@ Build for production with `bunx vite build`. Run `bun run check` for lint and ty
 ## Security
 
 The `public/_headers` file sets browser security headers (content security policy, no sniffing, HSTS, limited permissions) and `public/robots.txt` keeps the private gift-claim page out of search engines. Traffic filtering (rate limits, bot and DDoS protection) is handled by your hosting provider, not by the app.
+
+## Hosting
+
+`vercel.json` configures Vercel (build, single-page routing, security headers). `public/_headers` and `public/_redirects` do the same for Netlify. Set the `VITE_` variables listed above in your host's project settings, since `.env` is not uploaded.

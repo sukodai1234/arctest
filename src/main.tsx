@@ -21,6 +21,7 @@ import { ThemeProvider, ThemedShell } from './lib/theme'
 import { I18nProvider } from './lib/i18n'
 import { config } from './config'
 import App from './App'
+import { VercelAnalytics } from './components/VercelAnalytics'
 import { installShareSync } from './lib/share'
 import './index.css'
 
@@ -78,6 +79,7 @@ createRoot(document.getElementById('root')!).render(
             <ThemedShell>
               <App />
               <StudioWatermark />
+              <VercelAnalytics />
             </ThemedShell>
           </I18nProvider>
         </ThemeProvider>
