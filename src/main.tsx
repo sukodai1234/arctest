@@ -17,8 +17,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { WagmiProvider } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ConnectKitProvider } from 'connectkit'
-import { Toaster } from 'sonner'
+import { ThemeProvider, ThemedShell } from './lib/theme'
+import { I18nProvider } from './lib/i18n'
 import { config } from './config'
 import App from './App'
 import { installShareSync } from './lib/share'
@@ -73,11 +73,14 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <ConnectKitProvider>
-          <App />
-          <StudioWatermark />
-          <Toaster position="top-center" />
-        </ConnectKitProvider>
+        <ThemeProvider>
+          <I18nProvider>
+            <ThemedShell>
+              <App />
+              <StudioWatermark />
+            </ThemedShell>
+          </I18nProvider>
+        </ThemeProvider>
       </QueryClientProvider>
     </WagmiProvider>
   </StrictMode>,

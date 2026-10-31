@@ -5,7 +5,7 @@
 
 import { http, createConfig } from 'wagmi'
 import { mainnet } from 'wagmi/chains'
-import { arcTestnet } from 'viem/chains'
+import { arcTestnet, arbitrumSepolia, avalancheFuji, baseSepolia, optimismSepolia, polygonAmoy, sepolia } from 'viem/chains'
 import { injected } from 'wagmi/connectors'
 import { registerChain } from './tracing'
 
@@ -13,10 +13,17 @@ import { registerChain } from './tracing'
 registerChain(arcTestnet.id, arcTestnet.rpcUrls.default.http[0])
 
 export const config = createConfig({
-  chains: [arcTestnet, mainnet], // mainnet needed for ENS resolution
+  // Other testnets let the Bridge tool switch the wallet to any source network. Mainnet is for ENS only.
+  chains: [arcTestnet, baseSepolia, sepolia, arbitrumSepolia, optimismSepolia, avalancheFuji, polygonAmoy, mainnet],
   connectors: [injected()],
   transports: {
     [arcTestnet.id]: http(),
+    [baseSepolia.id]: http(),
+    [sepolia.id]: http(),
+    [arbitrumSepolia.id]: http(),
+    [optimismSepolia.id]: http(),
+    [avalancheFuji.id]: http(),
+    [polygonAmoy.id]: http(),
     [mainnet.id]: http(), // ENS resolution uses mainnet
   },
 })

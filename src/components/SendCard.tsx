@@ -1,3 +1,5 @@
+import { readInvoiceParams } from '@/lib/invoices'
+import { useT } from '@/lib/i18n'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAccount, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { erc20Abi, isAddress } from 'viem'
@@ -15,12 +17,19 @@ const GAS_BUFFER = '0.01'
 
 function readPrefill() {
   const params = new URLSearchParams(window.location.search)
-  return { to: params.get('to') ?? '', amount: params.get('amount') ?? '' }
+  return {
+    to: params.get('to') ?? '',
+    amount: params.get('amount') ?? '',
+    shop: (params.get('shop') ?? '').slice(0, 40),
+  }
 }
 
 export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void }) {
+  const t = useT()
   const [to, setTo] = useState(() => readPrefill().to)
   const [amount, setAmount] = useState(() => readPrefill().amount)
+  const [shop] = useState(() => readPrefill().shop)
+  const [invoice] = useState(() => readInvoiceParams(window.location.search))
 
   const { isConnected, chainId } = useAccount()
   const { switchChain, isPending: isSwitching } = useSwitchChain()
@@ -52,10 +61,10 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
     sentRef.current[hash] = true
     onSent({ hash, to: lastSent.current.to, amount: lastSent.current.amount })
     void refetch()
-    toast.success('Payment confirmed')
+    toast.success(t('Payment confirmed'))
     setAmount('')
     setTo('')
-  }, [isSuccess, hash, onSent, refetch])
+  }, [isSuccess, hash, onSent, refetch, t])
 
   const errorMessage = error ? parseOnchainError(error) : null
 
@@ -83,19 +92,43 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
 
   const busy = isPending || isConfirming || isSwitching
 
-  let label = 'Send USDC'
-  if (wrongChain) label = `Switch to ${ARC_CHAIN_NAME}`
-  else if (insufficient) label = 'Insufficient balance'
-  else if (!recipientValid && to) label = 'Enter a valid address'
+  let label = t('Send USDC')
+  if (wrongChain) label = t('Switch to {chain}', { chain: ARC_CHAIN_NAME })
+  else if (insufficient) label = t('Insufficient balance')
+  else if (!recipientValid && to) label = t('Enter a valid address')
 
   return (
     <section className="glass-card rounded-3xl p-5">
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'var(--muted)' }}>
-        Send
+        {t('Send')}
       </h2>
 
+      {invoice && (
+        <div className="glass-inner mb-3 rounded-2xl p-3">
+          <div className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>
+            {t('Invoice {id}', { id: invoice.id })}
+            {invoice.due && (
+              <span className="ml-2 text-xs font-normal" style={{ color: 'var(--muted)' }}>
+                {t('Due {date}', { date: invoice.due })}
+              </span>
+            )}
+          </div>
+          {invoice.note && (
+            <div className="text-xs" style={{ color: 'var(--muted)' }}>
+              {invoice.note}
+            </div>
+          )}
+        </div>
+      )}
+
+      {shop && (
+        <p className="mb-3 text-sm font-semibold" style={{ color: 'var(--ink)' }}>
+          {t('Paying {shop}', { shop })}
+        </p>
+      )}
+
       <label className="mb-1 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="recipient">
-        Recipient
+        {t('Recipient')}
       </label>
       <div className="field glass-inner mb-3 rounded-2xl px-4 py-3 transition-shadow">
         <input
@@ -111,12 +144,12 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
       </div>
       {to && !recipientValid && (
         <p className="-mt-2 mb-3 text-xs" style={{ color: 'var(--danger)' }}>
-          That is not a valid wallet address.
+          {t('That is not a valid wallet address.')}
         </p>
       )}
 
       <label className="mb-1 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="amount">
-        Amount
+        {t('Amount')}
       </label>
       <div className="field glass-inner rounded-2xl p-4 transition-shadow">
         <input
@@ -142,7 +175,7 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
             className="text-xs font-semibold tabular-nums disabled:opacity-40"
             style={{ color: 'var(--accent-hover)' }}
           >
-            {balance ? `Balance: ${balance.toFixed(2)} · Max` : 'Balance unavailable'}
+            {balance ? t('Balance: {amount} · Max', { amount: balance.toFixed(2) }) : t('Balance unavailable')}
           </button>
         </div>
       </div>
@@ -163,12 +196,12 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
 
       <dl className="mt-4 flex flex-col gap-1.5 text-xs" style={{ color: 'var(--muted)' }}>
         <div className="flex justify-between">
-          <dt>Network</dt>
+          <dt>{t('Network')}</dt>
           <dd>{ARC_CHAIN_NAME}</dd>
         </div>
         <div className="flex justify-between">
-          <dt>Network fee</dt>
-          <dd>Paid in USDC</dd>
+          <dt>{t('Network fee')}</dt>
+          <dd>{t('Paid in USDC')}</dd>
         </div>
       </dl>
 
@@ -178,10 +211,10 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
             {({ show }) => (
               <button
                 onClick={show}
-                className="min-h-12 w-full rounded-2xl text-sm font-semibold text-white transition-all hover:scale-[1.01] active:scale-[0.99]"
+                className="min-h-12 w-full rounded-2xl text-sm font-semibold text-[color:var(--on-accent)] transition-all hover:scale-[1.01] active:scale-[0.99]"
                 style={{ background: 'var(--accent)' }}
               >
-                Connect Wallet
+                {t('Connect Wallet')}
               </button>
             )}
           </ConnectKitButton.Custom>
@@ -189,16 +222,16 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
           <button
             disabled={busy || (!wrongChain && !ready)}
             onClick={send}
-            className="min-h-12 w-full rounded-2xl text-sm font-semibold text-white transition-all hover:scale-[1.01] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:cursor-not-allowed disabled:opacity-40"
+            className="min-h-12 w-full rounded-2xl text-sm font-semibold text-[color:var(--on-accent)] transition-all hover:scale-[1.01] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:cursor-not-allowed disabled:opacity-40"
             style={{ background: 'var(--accent)' }}
           >
             {isPending ? (
               <span className="flex items-center justify-center gap-2">
-                <Loader2 className="size-4 animate-spin" /> Confirm in wallet...
+                <Loader2 className="size-4 animate-spin" /> {t('Confirm in wallet...')}
               </span>
             ) : isConfirming ? (
               <span className="flex items-center justify-center gap-2">
-                <Loader2 className="size-4 animate-spin" /> Confirming...
+                <Loader2 className="size-4 animate-spin" /> {t('Confirming...')}
               </span>
             ) : (
               label
@@ -209,19 +242,19 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
 
       {errorMessage && (
         <p role="alert" className="mt-3 text-xs" style={{ color: 'var(--danger)' }}>
-          {errorMessage}
+          {t(errorMessage)}
         </p>
       )}
       {receiptFailed && (
         <p role="alert" className="mt-3 text-xs" style={{ color: 'var(--danger)' }}>
-          The transaction failed onchain. Your funds were not sent.
+          {t('The transaction failed onchain. Your funds were not sent.')}
         </p>
       )}
 
       {isSuccess && hash && (
         <div className="glass-inner mt-4 rounded-2xl p-4">
           <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--success)' }}>
-            <Check className="size-4" /> Payment confirmed
+            <Check className="size-4" /> {t('Payment confirmed')}
           </div>
           <div className="mt-2 flex items-center justify-between">
             <a
@@ -231,10 +264,10 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
               className="inline-flex items-center gap-1 text-xs font-medium"
               style={{ color: 'var(--accent-hover)' }}
             >
-              View on explorer <ExternalLink className="size-3" />
+              {t('View on explorer')} <ExternalLink className="size-3" />
             </a>
             <button type="button" onClick={reset} className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>
-              Dismiss
+              {t('Dismiss')}
             </button>
           </div>
         </div>

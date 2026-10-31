@@ -1,9 +1,11 @@
+import { useT } from '@/lib/i18n'
 import { useAccount } from 'wagmi'
 import { Wallet } from 'lucide-react'
 import { ARC_CHAIN_NAME } from '@/lib/arc'
 import { useUsdcBalance } from '@/hooks/useUsdcBalance'
 
 export function BalanceCard() {
+  const t = useT()
   const { isConnected } = useAccount()
   const { amount, isLoading } = useUsdcBalance()
 
@@ -12,11 +14,11 @@ export function BalanceCard() {
   return (
     <section className="glass-card rounded-3xl p-6">
       <div className="mb-3 flex items-center gap-1.5">
-        <div className="flex size-5 items-center justify-center rounded-md" style={{ background: 'rgba(18,45,69,0.08)' }}>
+        <div className="flex size-5 items-center justify-center rounded-md" style={{ background: 'var(--surface-muted)' }}>
           <Wallet className="size-3" style={{ color: 'var(--ink)' }} />
         </div>
         <span className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'var(--muted)' }}>
-          Available balance
+          {t('Available balance')}
         </span>
       </div>
       <div className="flex items-baseline gap-1.5">
@@ -28,7 +30,7 @@ export function BalanceCard() {
         </span>
       </div>
       <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>
-        {isConnected ? `Live on ${ARC_CHAIN_NAME}` : 'Connect your wallet to see your live balance'}
+        {isConnected ? t('Live on {chain}', { chain: ARC_CHAIN_NAME }) : t('Connect your wallet to see your live balance')}
       </p>
     </section>
   )
