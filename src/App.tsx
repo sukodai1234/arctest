@@ -2,7 +2,7 @@ import { useT } from '@/lib/i18n'
 import { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeftRight, FileText, HandCoins, QrCode, Repeat2, Store, Users, Wallet, X } from 'lucide-react'
+import { ArrowLeftRight, FileText, Gift, HandCoins, QrCode, Repeat2, Store, Users, Wallet, X } from 'lucide-react'
 import { Header } from '@/components/Header'
 import { BalanceCard } from '@/components/BalanceCard'
 import { SendCard } from '@/components/SendCard'
@@ -17,6 +17,9 @@ import { BridgeCard } from '@/components/BridgeCard'
 import { BatchCard } from '@/components/BatchCard'
 import { InvoicesCard } from '@/components/InvoicesCard'
 import { SwapCard } from '@/components/SwapCard'
+import { GiftCard } from '@/components/GiftCard'
+import { ClaimGift } from '@/components/ClaimGift'
+import { isClaimRoute } from '@/lib/gift'
 import { RecentActivity } from '@/components/RecentActivity'
 import { AddNetworkButton } from '@/components/AddNetworkButton'
 import { HISTORY_KEY } from '@/hooks/useTransferHistory'
@@ -26,6 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'tip', label: 'Tip', hint: 'Preset tip amounts', icon: <HandCoins className="size-4" /> },
   { id: 'request', label: 'Request payment', hint: 'Link and QR code', icon: <QrCode className="size-4" /> },
   { id: 'shop', label: 'Shop', hint: 'Store payment page', icon: <Store className="size-4" /> },
+  { id: 'gift', label: 'Gift', hint: 'One-time claim link', icon: <Gift className="size-4" /> },
   { id: 'invoices', label: 'Invoices', hint: 'Numbered, with due dates', icon: <FileText className="size-4" /> },
   { id: 'batch', label: 'Batch send', hint: 'Pay many people at once', icon: <Users className="size-4" /> },
   { id: 'swap', label: 'Swap', hint: 'USDC, EURC, cirBTC', icon: <Repeat2 className="size-4" /> },
@@ -37,6 +41,29 @@ function initialFeature(): FeatureId | null {
 }
 
 export default function App() {
+  if (isClaimRoute()) return <ClaimView />
+  return <MainApp />
+}
+
+/** Focused page for someone opening a gift link. */
+function ClaimView() {
+  const t = useT()
+  return (
+    <div className="min-h-dvh px-5 py-5">
+      <div className="mx-auto w-full max-w-md">
+        <Header />
+        <div className="mt-8 pb-20">
+          <ClaimGift />
+        </div>
+        <p className="text-balance text-center text-xs" style={{ color: 'var(--subtle)' }}>
+          {t('Running on Arc Testnet.')}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function MainApp() {
   const t = useT()
   const queryClient = useQueryClient()
   const [active, setActive] = useState<FeatureId | null>(initialFeature)
@@ -139,6 +166,7 @@ export default function App() {
                   {activeItem.id === 'tip' && <TipCard onSent={handleSent} />}
                   {activeItem.id === 'request' && <RequestCard />}
                   {activeItem.id === 'shop' && <ShopCard />}
+                  {activeItem.id === 'gift' && <GiftCard />}
                   {activeItem.id === 'invoices' && <InvoicesCard />}
                   {activeItem.id === 'batch' && <BatchCard />}
                   {activeItem.id === 'swap' && <SwapCard />}
