@@ -7,9 +7,11 @@ import { Check, ExternalLink, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConnectKitButton } from 'connectkit'
 import { buildTxExplorerUrl } from '@/onchain-facts'
-import { Amount, parseAmount } from '@/onchain-money'
-import { ARC_CHAIN_ID, ARC_CHAIN_NAME, USDC_ADDRESS, parseOnchainError } from '@/lib/arc'
-import { useUsdcBalance } from '@/hooks/useUsdcBalance'
+import { Amount } from '@/onchain-money'
+import { ARC_CHAIN_ID, ARC_CHAIN_NAME, parseOnchainError } from '@/lib/arc'
+import { ARC_TOKENS, getArcToken, type TokenId } from '@/lib/tokens'
+import { useTokenBalances } from '@/hooks/useTokenBalances'
+import { PercentChips } from './PercentChips'
 import type { SentPayment } from './Activity'
 
 const QUICK_AMOUNTS = ['0.10', '0.50', '1.00', '5.00']
@@ -30,10 +32,16 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
   const [amount, setAmount] = useState(() => readPrefill().amount)
   const [shop] = useState(() => readPrefill().shop)
   const [invoice] = useState(() => readInvoiceParams(window.location.search))
+  const [tokenId, setTokenId] = useState<TokenId>('USDC')
+  // Payment links (shop, invoice, prefilled) are priced in USDC, so the token is locked for them.
+  const usdcOnly = Boolean(shop || invoice || new URLSearchParams(window.location.search).has('to'))
+  const token = getArcToken(tokenId)
+  const isUsdc = token.id === 'USDC'
 
   const { isConnected, chainId } = useAccount()
   const { switchChain, isPending: isSwitching } = useSwitchChain()
-  const { amount: balance, refetch } = useUsdcBalance()
+  const { balances, refetch } = useTokenBalances()
+  const balance = balances[token.id]
   const { writeContract, data: hash, isPending, error, reset } = useWriteContract()
   const { isLoading: isConfirming, isSuccess, isError: receiptFailed } = useWaitForTransactionReceipt({ hash })
 
@@ -46,12 +54,12 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
   const parsed = useMemo(() => {
     if (!amount) return undefined
     try {
-      const value = parseAmount(ARC_CHAIN_ID, amount)
+      const value = Amount.parse(amount, token.decimals)
       return value.isPositive() ? value : undefined
     } catch {
       return undefined
     }
-  }, [amount])
+  }, [amount, token.decimals])
 
   const insufficient = Boolean(parsed && balance && parsed.gt(balance))
   const ready = isConnected && recipientValid && Boolean(parsed) && !insufficient
@@ -70,7 +78,7 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
 
   const maxAmount = () => {
     if (!balance) return
-    const max = balance.sub(Amount.parse(GAS_BUFFER, balance.decimals))
+    const max = isUsdc ? balance.sub(Amount.parse(GAS_BUFFER, balance.decimals)) : balance
     setAmount(max.isPositive() ? max.toString() : '')
   }
 
@@ -82,7 +90,7 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
     if (!ready || !parsed || !isAddress(to)) return
     lastSent.current = { to, amount: parsed.toString() }
     writeContract({
-      address: USDC_ADDRESS,
+      address: token.address,
       abi: erc20Abi,
       functionName: 'transfer',
       args: [to, parsed.raw],
@@ -92,7 +100,7 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
 
   const busy = isPending || isConfirming || isSwitching
 
-  let label = t('Send USDC')
+  let label = t('Send {token}', { token: token.symbol })
   if (wrongChain) label = t('Switch to {chain}', { chain: ARC_CHAIN_NAME })
   else if (insufficient) label = t('Insufficient balance')
   else if (!recipientValid && to) label = t('Enter a valid address')
@@ -158,16 +166,36 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
           value={amount}
           onChange={(e) => {
             const v = e.target.value
-            if (v === '' || /^\d*\.?\d{0,6}$/.test(v)) setAmount(v)
+            if (v === '' || new RegExp(`^\\d*\\.?\\d{0,${token.decimals}}$`).test(v)) setAmount(v)
           }}
           placeholder="0.00"
           className="display w-full bg-transparent text-4xl font-bold tabular-nums outline-none placeholder:text-slate-300"
           style={{ color: 'var(--ink)' }}
         />
         <div className="mt-2 flex items-center justify-between">
-          <span className="text-xs" style={{ color: 'var(--subtle)' }}>
-            USDC
-          </span>
+          {usdcOnly || ARC_TOKENS.length < 2 ? (
+            <span className="text-xs" style={{ color: 'var(--subtle)' }}>
+              USDC
+            </span>
+          ) : (
+            <select
+              value={tokenId}
+              disabled={busy}
+              aria-label={t('Token')}
+              onChange={(e) => {
+                setTokenId(e.target.value as TokenId)
+                setAmount('')
+              }}
+              className="rounded-lg bg-transparent py-1 pr-1 text-xs font-semibold outline-none"
+              style={{ color: 'var(--ink-2)' }}
+            >
+              {ARC_TOKENS.map((tk) => (
+                <option key={tk.id} value={tk.id}>
+                  {tk.symbol}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             disabled={!balance}
@@ -175,12 +203,13 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
             className="text-xs font-semibold tabular-nums disabled:opacity-40"
             style={{ color: 'var(--accent-hover)' }}
           >
-            {balance ? t('Balance: {amount} · Max', { amount: balance.toFixed(2) }) : t('Balance unavailable')}
+            {balance ? t('Balance: {amount} · Max', { amount: balance.toFixed(token.decimals <= 6 ? 2 : 6) }) : t('Balance unavailable')}
           </button>
         </div>
       </div>
 
-      <div className="mt-3 flex gap-2">
+      {!isUsdc && <PercentChips balance={balance} onPick={setAmount} disabled={busy} />}
+      <div className={`mt-3 flex gap-2 ${isUsdc ? '' : 'hidden'}`}>
         {QUICK_AMOUNTS.map((q) => (
           <button
             key={q}

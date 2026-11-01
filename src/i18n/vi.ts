@@ -354,4 +354,7 @@ export const vi: Record<string, string> = {
   "Scan to pay {amount} USDC.": "Quét để trả {amount} USDC.",
   "Enter your shop name to create the payment code.": "Nhập tên cửa hàng để tạo mã thanh toán.",
   "Fix the amount to create the payment code.": "Sửa số tiền để tạo mã thanh toán.",
+  "Send {token}": "Gửi {token}",
+  "Token": "Token",
+  "Other tokens on {chain}": "Token khác trên {chain}",
 }

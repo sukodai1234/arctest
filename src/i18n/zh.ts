@@ -354,4 +354,7 @@ export const zh: Record<string, string> = {
   "Scan to pay {amount} USDC.": "扫码支付 {amount} USDC。",
   "Enter your shop name to create the payment code.": "输入店铺名称即可生成收款码。",
   "Fix the amount to create the payment code.": "请修正金额以生成收款码。",
+  "Send {token}": "发送 {token}",
+  "Token": "代币",
+  "Other tokens on {chain}": "{chain} 上的其他代币",
 }

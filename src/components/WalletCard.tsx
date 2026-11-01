@@ -10,6 +10,8 @@ import { TESTNET_ONCHAIN_CHAINS, buildAddressExplorerUrl } from '@/onchain-facts
 import { Amount } from '@/onchain-money'
 import { ARC_CHAIN_ID, ARC_CHAIN_NAME, shortAddress } from '@/lib/arc'
 import { useUsdcBalance } from '@/hooks/useUsdcBalance'
+import { useTokenBalances } from '@/hooks/useTokenBalances'
+import { ARC_TOKENS } from '@/lib/tokens'
 
 const OTHER_CHAINS = TESTNET_ONCHAIN_CHAINS.filter((c) => c.chainId !== ARC_CHAIN_ID && c.usdc !== undefined)
 
@@ -18,6 +20,7 @@ export function WalletCard() {
   const { address, isConnected, connector } = useAccount()
   const { disconnect } = useDisconnect()
   const { amount, isLoading, refetch } = useUsdcBalance()
+  const { balances, refetch: refetchTokens } = useTokenBalances()
   const [copied, setCopied] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -75,7 +78,7 @@ export function WalletCard() {
 
   const refresh = async () => {
     setRefreshing(true)
-    await Promise.all([refetch(), ...others.map((q) => q.refetch())])
+    await Promise.all([refetch(), refetchTokens(), ...others.map((q) => q.refetch())])
     setRefreshing(false)
   }
 
@@ -118,7 +121,30 @@ export function WalletCard() {
         </p>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      {ARC_TOKENS.length > 1 && (
+        <>
+          <h3 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'var(--muted)' }}>
+            {t('Other tokens on {chain}', { chain: ARC_CHAIN_NAME })}
+          </h3>
+          <ul className="flex flex-col gap-1.5">
+            {ARC_TOKENS.filter((tk) => tk.id !== 'USDC').map((tk) => {
+              const value = balances[tk.id]
+              return (
+                <li key={tk.id} className="glass-inner flex items-center justify-between rounded-xl px-4 py-2.5">
+                  <span className="text-sm font-medium" style={{ color: 'var(--ink-2)' }}>
+                    {tk.symbol}
+                  </span>
+                  <span className="text-sm font-semibold tabular-nums" style={{ color: value && value.isPositive() ? 'var(--ink)' : 'var(--subtle)' }}>
+                    {value ? value.toFixed(tk.decimals <= 6 ? 2 : 6) : '...'}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
+
+      <div className="mt-4 grid grid-cols-3 gap-2">
         <button
           type="button"
           onClick={() => void copy()}
