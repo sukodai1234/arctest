@@ -21,22 +21,26 @@ export interface BatchParse {
   errors: BatchError[]
 }
 
-/** Parses lines like "0xabc..., 1.50" (comma, semicolon, tab or space separated). */
-export function parseBatch(input: string): BatchParse {
+export interface BatchEntry {
+  id: number
+  to: string
+  amount: string
+}
+
+/** Validates the form rows. Empty rows are ignored; `line` is the 1-based row number shown to the user. */
+export function parseEntries(entries: BatchEntry[]): BatchParse {
   const rows: BatchRow[] = []
   const errors: BatchError[] = []
-  const lines = input.split(/\r?\n/)
 
-  lines.forEach((raw, index) => {
-    const text = raw.trim()
-    if (!text) return
+  entries.forEach((entry, index) => {
+    const to = entry.to.trim()
+    const value = entry.amount.trim()
+    if (!to && !value) return
     const line = index + 1
-    const parts = text.split(/[\s,;]+/).filter(Boolean)
-    if (parts.length !== 2) {
-      errors.push({ line, reason: 'Use one address and one amount per line.' })
+    if (!to || !value) {
+      errors.push({ line, reason: 'Fill in both the address and the amount.' })
       return
     }
-    const [to, value] = parts
     if (!isAddress(to)) {
       errors.push({ line, reason: 'Not a valid wallet address.' })
       return
@@ -50,8 +54,17 @@ export function parseBatch(input: string): BatchParse {
     }
   })
 
-  if (rows.length > MAX_BATCH_ROWS) {
-    errors.push({ line: 0, reason: 'Too many recipients. The limit is 50 per batch.' })
-  }
   return { rows, errors }
+}
+
+/** Splits pasted text ("address, amount" per line, separated by comma, semicolon, tab or space) into form values. */
+export function splitPasted(text: string): { to: string; amount: string }[] {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const parts = l.split(/[\s,;]+/).filter(Boolean)
+      return { to: parts[0] ?? '', amount: parts[1] ?? '' }
+    })
 }

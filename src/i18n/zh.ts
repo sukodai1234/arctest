@@ -339,4 +339,10 @@ export const zh: Record<string, string> = {
   "{n} days left": "剩余 {n} 天",
   "{n} hours left": "剩余 {n} 小时",
   "{n} minutes left": "剩余 {n} 分钟",
+  "Fill in both the address and the amount.": "请同时填写地址和金额。",
+  "Wallet address row {n}": "第 {n} 行钱包地址",
+  "Amount row {n}": "第 {n} 行金额",
+  "Remove row {n}": "删除第 {n} 行",
+  "Add row": "添加一行",
+  "Paste lines like \"address, amount\" into the first box to fill the rows. Up to {max} recipients. Each payment is a separate wallet confirmation.": "将“地址, 金额”格式的多行文本粘贴到第一个框即可自动填充各行。最多 {max} 位收款人。每笔付款都需在钱包中单独确认。",
 }

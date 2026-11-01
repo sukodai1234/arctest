@@ -3,16 +3,21 @@ import { useAccount, useConfig, useSwitchChain, useWriteContract } from 'wagmi'
 import { waitForTransactionReceipt } from 'wagmi/actions'
 import { useQueryClient } from '@tanstack/react-query'
 import { erc20Abi } from 'viem'
-import { Check, CircleDashed, ExternalLink, Loader2, X } from 'lucide-react'
+import { Check, CircleDashed, ExternalLink, Loader2, Plus, X } from 'lucide-react'
 import { ConnectKitButton } from 'connectkit'
 import { toast } from 'sonner'
 import { buildTxExplorerUrl } from '@/onchain-facts'
 import { Amount } from '@/onchain-money'
-import { ARC_CHAIN_ID, USDC_ADDRESS, shortAddress } from '@/lib/arc'
-import { MAX_BATCH_ROWS, parseBatch } from '@/lib/batch'
+import { ARC_CHAIN_ID, USDC_ADDRESS } from '@/lib/arc'
+import { MAX_BATCH_ROWS, parseEntries, splitPasted, type BatchEntry } from '@/lib/batch'
 import { useT } from '@/lib/i18n'
 import { useUsdcBalance } from '@/hooks/useUsdcBalance'
 import { HISTORY_KEY } from '@/hooks/useTransferHistory'
+
+const DEFAULT_ROWS = 5
+let nextId = 1
+const blankEntry = (): BatchEntry => ({ id: nextId++, to: '', amount: '' })
+const blankEntries = (): BatchEntry[] => Array.from({ length: DEFAULT_ROWS }, blankEntry)
 
 type RowState = 'pending' | 'wallet' | 'confirming' | 'done' | 'failed' | 'skipped'
 
@@ -36,15 +41,15 @@ export function BatchCard() {
   const { writeContractAsync } = useWriteContract()
   const { amount: balance, refetch } = useUsdcBalance()
 
-  const [text, setText] = useState('')
+  const [entries, setEntries] = useState<BatchEntry[]>(blankEntries)
   const [statuses, setStatuses] = useState<Record<number, RowStatus>>({})
   const [running, setRunning] = useState(false)
 
-  const { rows, errors } = useMemo(() => parseBatch(text), [text])
+  const { rows, errors } = useMemo(() => parseEntries(entries), [entries])
   const decimals = balance?.decimals ?? 6
   const total = useMemo(() => Amount.sum(rows.map((r) => r.amount), decimals), [rows, decimals])
   const insufficient = Boolean(balance && total.gt(balance))
-  const valid = rows.length > 0 && errors.length === 0 && rows.length <= MAX_BATCH_ROWS
+  const valid = rows.length > 0 && errors.length === 0
   const started = Object.keys(statuses).length > 0
   const remaining = rows.filter((r) => statuses[r.line]?.state !== 'done')
   const allDone = started && remaining.length === 0
@@ -90,9 +95,29 @@ export function BatchCard() {
     }
   }
 
+  const locked = running || started
+  const update = (id: number, patch: Partial<BatchEntry>) =>
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)))
+  const addRow = () => setEntries((prev) => (prev.length >= MAX_BATCH_ROWS ? prev : [...prev, blankEntry()]))
+  const removeRow = (id: number) => setEntries((prev) => (prev.length <= 1 ? prev : prev.filter((e) => e.id !== id)))
+  const onPaste = (index: number, text: string) => {
+    const pasted = splitPasted(text)
+    if (pasted.length === 0 || (pasted.length === 1 && !pasted[0].amount)) return false
+    setEntries((prev) => {
+      const next = [...prev]
+      pasted.forEach((p, i) => {
+        const at = index + i
+        if (at < next.length) next[at] = { ...next[at], ...p }
+        else if (next.length < MAX_BATCH_ROWS) next.push({ id: nextId++, ...p })
+      })
+      return next
+    })
+    return true
+  }
+
   const reset = () => {
     setStatuses({})
-    setText('')
+    setEntries(blankEntries())
   }
 
   let label = t('Send to {count} recipients', { count: rows.length })
@@ -101,84 +126,115 @@ export function BatchCard() {
 
   return (
     <section className="glass-card rounded-3xl p-5">
-      <label className="mb-1 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="batch-input">
+      <p className="mb-2 text-xs font-medium" style={{ color: 'var(--muted)' }}>
         {t('Recipients and amounts')}
-      </label>
-      <div className="field glass-inner rounded-2xl px-4 py-3 transition-shadow">
-        <textarea
-          id="batch-input"
-          value={text}
-          disabled={running || started}
-          onChange={(e) => setText(e.target.value)}
-          rows={5}
-          spellCheck={false}
-          placeholder={t('One per line: address, amount')}
-          className="mono w-full resize-none bg-transparent text-xs outline-none placeholder:text-slate-300"
-          style={{ color: 'var(--ink)' }}
-        />
-      </div>
-      <p className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>
-        {t('Example line: address, 1.50. Up to {max} recipients. Each payment is a separate wallet confirmation.', { max: MAX_BATCH_ROWS })}
+      </p>
+      <ul className="flex flex-col gap-2">
+        {entries.map((entry, index) => {
+          const line = index + 1
+          const st = statuses[line]?.state
+          const hash = statuses[line]?.hash
+          const error = errors.find((e) => e.line === line)
+          return (
+            <li key={entry.id}>
+              <div className="flex items-center gap-2">
+                <span className="w-4 shrink-0 text-center text-xs tabular-nums" style={{ color: 'var(--subtle)' }}>
+                  {line}
+                </span>
+                <div className="field glass-inner min-w-0 flex-1 rounded-xl px-3 py-2 transition-shadow">
+                  <input
+                    value={entry.to}
+                    disabled={locked}
+                    onChange={(e) => update(entry.id, { to: e.target.value })}
+                    onPaste={(e) => {
+                      if (onPaste(index, e.clipboardData.getData('text'))) e.preventDefault()
+                    }}
+                    spellCheck={false}
+                    autoComplete="off"
+                    aria-label={t('Wallet address row {n}', { n: line })}
+                    placeholder="0x..."
+                    className="mono w-full bg-transparent text-xs outline-none placeholder:text-slate-300"
+                    style={{ color: 'var(--ink)' }}
+                  />
+                </div>
+                <div className="field glass-inner w-24 shrink-0 rounded-xl px-3 py-2 transition-shadow">
+                  <input
+                    value={entry.amount}
+                    disabled={locked}
+                    onChange={(e) => update(entry.id, { amount: e.target.value.replace(/[^0-9.]/g, '') })}
+                    inputMode="decimal"
+                    autoComplete="off"
+                    aria-label={t('Amount row {n}', { n: line })}
+                    placeholder="0.00"
+                    className="w-full bg-transparent text-right text-sm tabular-nums outline-none placeholder:text-slate-300"
+                    style={{ color: 'var(--ink)' }}
+                  />
+                </div>
+                <span className="flex size-8 shrink-0 items-center justify-center">
+                  {st === 'done' ? (
+                    <Check className="size-4" style={{ color: 'var(--success)' }} />
+                  ) : st === 'failed' ? (
+                    <X className="size-4" style={{ color: 'var(--danger)' }} />
+                  ) : st === 'wallet' || st === 'confirming' ? (
+                    <Loader2 className="size-4 animate-spin" style={{ color: 'var(--subtle)' }} />
+                  ) : st === 'skipped' ? (
+                    <CircleDashed className="size-4" style={{ color: 'var(--subtle)' }} />
+                  ) : !locked && entries.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => removeRow(entry.id)}
+                      aria-label={t('Remove row {n}', { n: line })}
+                      className="flex size-8 items-center justify-center rounded-lg hover:bg-[color:var(--hover)]"
+                    >
+                      <X className="size-3.5" style={{ color: 'var(--subtle)' }} />
+                    </button>
+                  ) : null}
+                </span>
+              </div>
+              {(error || st === 'wallet' || st === 'confirming' || st === 'failed' || st === 'skipped' || hash) && (
+                <p className="mt-1 flex items-center gap-2 pl-6 text-xs" style={{ color: error || st === 'failed' ? 'var(--danger)' : 'var(--subtle)' }}>
+                  {error
+                    ? t(error.reason)
+                    : st === 'wallet'
+                      ? t('Confirm in wallet...')
+                      : st === 'confirming'
+                        ? t('Confirming...')
+                        : st === 'failed'
+                          ? t('Failed')
+                          : st === 'skipped'
+                            ? t('Skipped')
+                            : ''}
+                  {hash && (
+                    <a href={buildTxExplorerUrl(ARC_CHAIN_ID, hash)} target="_blank" rel="noopener noreferrer" aria-label={t('View on explorer')} className="inline-flex items-center">
+                      <ExternalLink className="size-3.5" style={{ color: 'var(--accent-hover)' }} />
+                    </a>
+                  )}
+                </p>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+
+      {!locked && (
+        <button
+          type="button"
+          onClick={addRow}
+          disabled={entries.length >= MAX_BATCH_ROWS}
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-dashed text-sm font-semibold transition-colors hover:bg-[color:var(--hover)] disabled:cursor-not-allowed disabled:opacity-40"
+          style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+        >
+          <Plus className="size-4" /> {t('Add row')}
+        </button>
+      )}
+      <p className="mt-2 text-xs" style={{ color: 'var(--subtle)' }}>
+        {t('Paste lines like "address, amount" into the first box to fill the rows. Up to {max} recipients. Each payment is a separate wallet confirmation.', { max: MAX_BATCH_ROWS })}
       </p>
 
-      {errors.length > 0 && (
-        <ul role="alert" className="mt-3 flex flex-col gap-1 text-xs" style={{ color: 'var(--danger)' }}>
-          {errors.slice(0, 5).map((e, i) => (
-            <li key={`${e.line}-${i}`}>{e.line > 0 ? t('Line {line}: {reason}', { line: e.line, reason: t(e.reason) }) : t(e.reason)}</li>
-          ))}
-          {errors.length > 5 && <li>{t('And {count} more issues.', { count: errors.length - 5 })}</li>}
-        </ul>
-      )}
-
-      {rows.length > 0 && (
-        <>
-          <ul className="mt-4 flex flex-col gap-1.5">
-            {rows.map((r) => {
-              const st = statuses[r.line]?.state ?? 'pending'
-              const hash = statuses[r.line]?.hash
-              return (
-                <li key={r.line} className="glass-inner flex items-center justify-between gap-2 rounded-xl px-3 py-2">
-                  <span className="flex min-w-0 items-center gap-2">
-                    {st === 'done' ? (
-                      <Check className="size-4 shrink-0" style={{ color: 'var(--success)' }} />
-                    ) : st === 'failed' ? (
-                      <X className="size-4 shrink-0" style={{ color: 'var(--danger)' }} />
-                    ) : st === 'wallet' || st === 'confirming' ? (
-                      <Loader2 className="size-4 shrink-0 animate-spin" style={{ color: 'var(--subtle)' }} />
-                    ) : (
-                      <CircleDashed className="size-4 shrink-0" style={{ color: 'var(--subtle)' }} />
-                    )}
-                    <span className="mono truncate text-xs" style={{ color: 'var(--ink)' }}>
-                      {shortAddress(r.to)}
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1">
-                    <span className="text-xs" style={{ color: 'var(--subtle)' }}>
-                      {st === 'wallet' ? t('Confirm in wallet...') : st === 'confirming' ? t('Confirming...') : st === 'failed' ? t('Failed') : st === 'skipped' ? t('Skipped') : ''}
-                    </span>
-                    <span className="display text-sm font-semibold tabular-nums">{r.amount.toFixed(2)}</span>
-                    {hash && (
-                      <a
-                        href={buildTxExplorerUrl(ARC_CHAIN_ID, hash)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={t('View on explorer')}
-                        className="flex size-8 items-center justify-center"
-                      >
-                        <ExternalLink className="size-3.5" style={{ color: 'var(--accent-hover)' }} />
-                      </a>
-                    )}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-          <div className="mt-3 flex items-center justify-between text-sm">
-            <span style={{ color: 'var(--muted)' }}>{t('Total')}</span>
-            <span className="display font-bold tabular-nums">{total.toFixed(2)} USDC</span>
-          </div>
-        </>
-      )}
+      <div className="mt-3 flex items-center justify-between text-sm">
+        <span style={{ color: 'var(--muted)' }}>{t('Total')}</span>
+        <span className="display font-bold tabular-nums">{total.toFixed(2)} USDC</span>
+      </div>
 
       <div className="mt-4">
         {!isConnected ? (

@@ -339,4 +339,10 @@ export const vi: Record<string, string> = {
   "{n} days left": "Còn {n} ngày",
   "{n} hours left": "Còn {n} giờ",
   "{n} minutes left": "Còn {n} phút",
+  "Fill in both the address and the amount.": "Hãy điền cả địa chỉ và số tiền.",
+  "Wallet address row {n}": "Địa chỉ ví dòng {n}",
+  "Amount row {n}": "Số tiền dòng {n}",
+  "Remove row {n}": "Xóa dòng {n}",
+  "Add row": "Thêm dòng",
+  "Paste lines like \"address, amount\" into the first box to fill the rows. Up to {max} recipients. Each payment is a separate wallet confirmation.": "Dán các dòng dạng \"địa chỉ, số tiền\" vào ô đầu tiên để điền các dòng. Tối đa {max} người nhận. Mỗi khoản là một lần xác nhận riêng trong ví.",
 }
