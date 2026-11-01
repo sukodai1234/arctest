@@ -2,6 +2,7 @@ import { isAddress } from 'viem'
 import { Amount, parseAmount } from '@/onchain-money'
 import { ARC_CHAIN_ID, USDC_ADDRESS } from '@/lib/arc'
 import { readInvoiceParams } from '@/lib/invoices'
+import { cleanFiatAmount, getFiat } from '@/lib/fx'
 
 type InvoiceParams = NonNullable<ReturnType<typeof readInvoiceParams>>
 
@@ -12,6 +13,8 @@ export interface PaymentRequest {
   /** Merchant or shop name, as text only. */
   merchant?: string
   invoice?: InvoiceParams
+  /** A price in a local currency. The payer's app converts it to USDC at the rate it fetches at payment time. */
+  fiat?: { code: string; amount: string }
   /** Where the request came from, to explain it to the payer. */
   source: 'arcpay' | 'eip681' | 'address'
 }
@@ -43,11 +46,15 @@ function parseLink(text: string): ParseResult | undefined {
   if (!to) return undefined
   if (!isAddress(to)) return fail('This code has an invalid wallet address.')
   const invoice = readInvoiceParams(url.search) ?? undefined
+  const currency = getFiat((url.searchParams.get('cur') ?? '').toUpperCase())
+  const fiatAmount = currency ? cleanFiatAmount(url.searchParams.get('fiat'), currency.decimals) : undefined
+  const fiat = currency && fiatAmount ? { code: currency.code, amount: fiatAmount } : undefined
   return {
     ok: true,
     request: {
       to,
-      amount: cleanAmount(url.searchParams.get('amount')),
+      amount: fiat ? undefined : cleanAmount(url.searchParams.get('amount')),
+      fiat,
       merchant: (url.searchParams.get('shop') ?? '').slice(0, 40) || undefined,
       invoice,
       source: 'arcpay',

@@ -12,6 +12,8 @@ import { ARC_CHAIN_ID, ARC_CHAIN_NAME, parseOnchainError } from '@/lib/arc'
 import { ARC_TOKENS, getArcToken, type TokenId } from '@/lib/tokens'
 import { useTokenBalances } from '@/hooks/useTokenBalances'
 import { PercentChips } from './PercentChips'
+import { useFiatQuote } from '@/hooks/useFiatQuote'
+import { cleanFiatAmount, getFiat } from '@/lib/fx'
 import type { SentPayment } from './Activity'
 
 const QUICK_AMOUNTS = ['0.10', '0.50', '1.00', '5.00']
@@ -23,18 +25,29 @@ function readPrefill() {
     to: params.get('to') ?? '',
     amount: params.get('amount') ?? '',
     shop: (params.get('shop') ?? '').slice(0, 40),
+    ...readFiat(params),
   }
+}
+
+function readFiat(params: URLSearchParams): { cur?: string; fiat?: string } {
+  const currency = getFiat((params.get('cur') ?? '').toUpperCase())
+  const fiat = currency ? cleanFiatAmount(params.get('fiat'), currency.decimals) : undefined
+  return currency && fiat ? { cur: currency.code, fiat } : {}
 }
 
 export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void }) {
   const t = useT()
   const [to, setTo] = useState(() => readPrefill().to)
-  const [amount, setAmount] = useState(() => readPrefill().amount)
+  const [amountInput, setAmount] = useState(() => readPrefill().amount)
   const [shop] = useState(() => readPrefill().shop)
   const [invoice] = useState(() => readInvoiceParams(window.location.search))
   const [tokenId, setTokenId] = useState<TokenId>('USDC')
+  const [price] = useState(() => readPrefill())
+  const fx = useFiatQuote(price.cur, price.fiat)
+  // A local-currency price from a payment link becomes the USDC amount once the rate is known.
+  const amount = price.fiat ? (fx.usdc ?? '') : amountInput
   // Payment links (shop, invoice, prefilled) are priced in USDC, so the token is locked for them.
-  const usdcOnly = Boolean(shop || invoice || new URLSearchParams(window.location.search).has('to'))
+  const usdcOnly = Boolean(shop || invoice || price.cur || new URLSearchParams(window.location.search).has('to'))
   const token = getArcToken(tokenId)
   const isUsdc = token.id === 'USDC'
 
@@ -129,6 +142,21 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
         </div>
       )}
 
+      {price.cur && price.fiat && (
+        <p className="mb-3 text-xs" style={{ color: 'var(--muted)' }}>
+          {fx.rate
+            ? t('Price {amount} {currency} at 1 USD = {rate} {currency} ({source}).', {
+                amount: Number(price.fiat).toLocaleString(),
+                currency: price.cur,
+                rate: fx.rate.perUsd.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+                source: t(fx.rate.source),
+              })
+            : fx.error
+              ? t('Could not load an exchange rate.')
+              : t('Getting quote...')}
+        </p>
+      )}
+
       {shop && (
         <p className="mb-3 text-sm font-semibold" style={{ color: 'var(--ink)' }}>
           {t('Paying {shop}', { shop })}
@@ -164,6 +192,7 @@ export function SendCard({ onSent }: { onSent: (payment: SentPayment) => void })
           id="amount"
           inputMode="decimal"
           value={amount}
+          readOnly={Boolean(price.fiat)}
           onChange={(e) => {
             const v = e.target.value
             if (v === '' || new RegExp(`^\\d*\\.?\\d{0,${token.decimals}}$`).test(v)) setAmount(v)

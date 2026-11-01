@@ -9,6 +9,9 @@ import { buildTxExplorerUrl } from '@/onchain-facts'
 import { Amount } from '@/onchain-money'
 import { ARC_CHAIN_ID, ARC_CHAIN_NAME, USDC_ADDRESS, parseOnchainError } from '@/lib/arc'
 import { parsePaymentCode, type PaymentRequest } from '@/lib/payqr'
+import { parseEmvMerchantCode, type EmvMerchantCode } from '@/lib/emv'
+import { getFiat } from '@/lib/fx'
+import { useFiatQuote } from '@/hooks/useFiatQuote'
 import { useT } from '@/lib/i18n'
 import { useTokenBalances } from '@/hooks/useTokenBalances'
 import { usePayQuote } from '@/hooks/usePayQuote'
@@ -17,7 +20,7 @@ import { HISTORY_KEY } from '@/hooks/useTransferHistory'
 import { QrScanner } from './QrScanner'
 import { PayFromNetwork } from './PayFromNetwork'
 
-type Stage = 'idle' | 'scan' | 'review'
+type Stage = 'idle' | 'scan' | 'review' | 'emv'
 
 export function PayCard() {
   const t = useT()
@@ -31,6 +34,7 @@ export function PayCard() {
   const [stage, setStage] = useState<Stage>('idle')
   const [request, setRequest] = useState<PaymentRequest | undefined>()
   const [typed, setTyped] = useState('')
+  const [emv, setEmv] = useState<EmvMerchantCode | undefined>()
   const [pasted, setPasted] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   const settled = useRef<string | undefined>(undefined)
@@ -42,7 +46,9 @@ export function PayCard() {
 
   const info = getPayToken(payToken)
   const wrongChain = isConnected && chainId !== ARC_CHAIN_ID
-  const amountText = request?.amount ?? typed
+  const fx = useFiatQuote(request?.fiat?.code, request?.fiat?.amount)
+  const emvFx = useFiatQuote(emv?.currencyKnown ? emv.currency : undefined, emv?.amount)
+  const amountText = request?.fiat ? (fx.usdc ?? '') : (request?.amount ?? typed)
   const parsed = useMemo(() => {
     if (!amountText) return undefined
     try {
@@ -58,6 +64,13 @@ export function PayCard() {
   const insufficient = Boolean(needed && payBalance && needed.gt(payBalance))
 
   const open = useCallback((text: string) => {
+    const local = parseEmvMerchantCode(text)
+    if (local) {
+      setProblem(null)
+      setEmv(local)
+      setStage('emv')
+      return
+    }
     const result = parsePaymentCode(text)
     if (!result.ok) {
       setProblem(result.reason)
@@ -78,6 +91,7 @@ export function PayCard() {
     setSwapProblem(null)
     setPaidWith(undefined)
     setRequest(undefined)
+    setEmv(undefined)
     setTyped('')
     setPasted('')
     setProblem(null)
@@ -150,6 +164,61 @@ export function PayCard() {
     )
   }
 
+  if (stage === 'emv' && emv) {
+    const fiat = getFiat(emv.currency)
+    return (
+      <section className="glass-card rounded-3xl p-5">
+        <div className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'var(--muted)' }}>
+          {t('Local currency code')}
+        </div>
+        <div className="display mt-1 break-words text-xl font-bold" style={{ color: 'var(--ink)' }}>
+          {emv.name ?? t('A wallet address')}
+        </div>
+        <div className="text-xs" style={{ color: 'var(--muted)' }}>
+          {[emv.city, emv.country].filter(Boolean).join(', ')}
+        </div>
+        {emv.amount && (
+          <div className="glass-inner mt-3 rounded-2xl p-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span style={{ color: 'var(--muted)' }}>{t('Price')}</span>
+              <span className="display font-bold tabular-nums" style={{ color: 'var(--ink)' }}>
+                {Number(emv.amount).toLocaleString()} {emv.currency}
+                {fiat ? ` (${t(fiat.name)})` : ''}
+              </span>
+            </div>
+            {emvFx.usdc && emvFx.rate && (
+              <>
+                <div className="mt-1 flex items-center justify-between">
+                  <span style={{ color: 'var(--muted)' }}>{t('Equals about')}</span>
+                  <span className="font-semibold tabular-nums" style={{ color: 'var(--ink)' }}>
+                    {emvFx.usdc} USDC
+                  </span>
+                </div>
+                <div className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>
+                  {t(emvFx.rate.source)}
+                  {emvFx.rate.asOf ? ` · ${emvFx.rate.asOf}` : ''}
+                </div>
+              </>
+            )}
+            {emvFx.loading && <Loader2 className="mt-2 size-4 animate-spin" style={{ color: 'var(--subtle)' }} />}
+          </div>
+        )}
+        <p role="status" className="mt-3 flex items-start gap-2 text-xs" style={{ color: 'var(--muted)' }}>
+          <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+          {t('This shop is paid in {currency} through a local bank or e-wallet. Arc Pay sends USDC onchain and cannot pay into a bank account yet, so this code cannot be paid here. Ask the shop for a USDC payment code.', { currency: emv.currency })}
+        </p>
+        <button
+          type="button"
+          onClick={back}
+          className="mt-4 min-h-12 w-full rounded-2xl text-sm font-semibold text-[color:var(--on-accent)]"
+          style={{ background: 'var(--accent)' }}
+        >
+          {t('Scan another code')}
+        </button>
+      </section>
+    )
+  }
+
   if (stage === 'review' && request) {
     const done = isSuccess && Boolean(hash)
     let label = t('Pay {amount} USDC', { amount: parsed ? parsed.toString() : '' })
@@ -157,7 +226,8 @@ export function PayCard() {
     if (wrongChain) label = t('Switch to {chain}', { chain: ARC_CHAIN_NAME })
     else if (insufficient) label = t('Insufficient balance')
     else if (!parsed) label = t('Enter an amount')
-    const waitingQuote = payToken !== 'USDC' && !quote && !wrongChain && Boolean(parsed)
+    const waitingFx = Boolean(request.fiat) && !fx.usdc && !fx.error
+    const waitingQuote = waitingFx || (payToken !== 'USDC' && !quote && !wrongChain && Boolean(parsed))
 
     return (
       <section className="glass-card rounded-3xl p-5">
@@ -189,6 +259,43 @@ export function PayCard() {
           </div>
         )}
 
+        {request.fiat && (
+          <div className="glass-inner mt-3 rounded-2xl p-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span style={{ color: 'var(--muted)' }}>{t('Price')}</span>
+              <span className="display font-bold tabular-nums" style={{ color: 'var(--ink)' }}>
+                {Number(request.fiat.amount).toLocaleString()} {request.fiat.code}
+              </span>
+            </div>
+            {fx.rate && (
+              <>
+                <div className="mt-1 flex items-center justify-between text-xs" style={{ color: 'var(--muted)' }}>
+                  <span>{t('Exchange rate')}</span>
+                  <span className="tabular-nums">
+                    1 USD = {fx.rate.perUsd.toLocaleString(undefined, { maximumFractionDigits: 4 })} {request.fiat.code}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs" style={{ color: 'var(--subtle)' }}>
+                  {t(fx.rate.source)}
+                  {fx.rate.asOf ? ` · ${fx.rate.asOf}` : ''}
+                </div>
+              </>
+            )}
+            {fx.loading && <Loader2 className="mt-2 size-4 animate-spin" style={{ color: 'var(--subtle)' }} />}
+            {fx.error && (
+              <div role="alert" className="mt-2 flex items-center justify-between text-xs" style={{ color: 'var(--danger)' }}>
+                {t('Could not load an exchange rate.')}
+                <button type="button" onClick={() => void fx.refetch()} className="font-semibold underline">
+                  {t('Try again')}
+                </button>
+              </div>
+            )}
+            <p className="mt-2 text-xs" style={{ color: 'var(--subtle)' }}>
+              {t('USDC is a US dollar stablecoin issued by Circle and backed by reserves, so 1 USDC is worth 1 US dollar. The amount is rounded up to the next cent.')}
+            </p>
+          </div>
+        )}
+
         <label className="mb-1 mt-4 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="pay-amount">
           {t('Amount to pay (US dollars)')}
         </label>
@@ -197,7 +304,7 @@ export function PayCard() {
             id="pay-amount"
             inputMode="decimal"
             value={amountText}
-            readOnly={Boolean(request.amount) || busy || done}
+            readOnly={Boolean(request.amount) || Boolean(request.fiat) || busy || done}
             onChange={(e) => {
               const v = e.target.value
               if (v === '' || /^\d*\.?\d{0,6}$/.test(v)) setTyped(v)

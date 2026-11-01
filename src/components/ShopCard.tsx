@@ -6,10 +6,13 @@ import { toast } from 'sonner'
 import { Amount, parseAmount } from '@/onchain-money'
 import { ARC_CHAIN_ID, shortAddress } from '@/lib/arc'
 import { useQrDataUrl, useShareBase } from '@/hooks/useShareLink'
+import { useFiatQuote } from '@/hooks/useFiatQuote'
+import { FIAT_CURRENCIES, cleanFiatAmount, getFiat } from '@/lib/fx'
 import { useTransferHistory, type HistoryItem } from '@/hooks/useTransferHistory'
 
 const NAME_KEY = 'arcpay-shop-name'
 const AMOUNT_KEY = 'arcpay-shop-amount'
+const CURRENCY_KEY = 'arcpay-shop-currency'
 const MAX_NAME = 40
 const QUICK_AMOUNTS = ['1', '5', '10', '20']
 
@@ -19,24 +22,35 @@ export function ShopCard() {
   const base = useShareBase()
   const [name, setName] = useState(() => localStorage.getItem(NAME_KEY) ?? '')
   const [amountText, setAmountText] = useState(() => localStorage.getItem(AMOUNT_KEY) ?? '')
+  const [currency, setCurrency] = useState(() => (getFiat(localStorage.getItem(CURRENCY_KEY) ?? '') ? (localStorage.getItem(CURRENCY_KEY) as string) : 'USD'))
   const [copied, setCopied] = useState(false)
 
   const trimmed = name.trim()
+  const isUsd = currency === 'USD'
   const defaultAmount = useMemo(() => {
-    if (!amountText.trim()) return { value: undefined, invalid: false }
+    if (!amountText.trim()) return { value: undefined, fiat: undefined, invalid: false }
+    if (!isUsd) {
+      const fiat = cleanFiatAmount(amountText, getFiat(currency)?.decimals ?? 2)
+      return fiat ? { value: undefined, fiat, invalid: false } : { value: undefined, fiat: undefined, invalid: true }
+    }
     try {
       const parsed = parseAmount(ARC_CHAIN_ID, amountText.trim())
-      return parsed.isPositive() ? { value: parsed.toString(), invalid: false } : { value: undefined, invalid: true }
+      return parsed.isPositive() ? { value: parsed.toString(), fiat: undefined, invalid: false } : { value: undefined, fiat: undefined, invalid: true }
     } catch {
-      return { value: undefined, invalid: true }
+      return { value: undefined, fiat: undefined, invalid: true }
     }
-  }, [amountText])
+  }, [amountText, isUsd, currency])
+  const preview = useFiatQuote(isUsd ? undefined : currency, defaultAmount.fiat)
   const link = useMemo(() => {
     if (!base || !address || !trimmed || defaultAmount.invalid) return undefined
     const params = new URLSearchParams({ to: address, shop: trimmed })
     if (defaultAmount.value) params.set('amount', defaultAmount.value)
+    if (defaultAmount.fiat) {
+      params.set('cur', currency)
+      params.set('fiat', defaultAmount.fiat)
+    }
     return `${base}/?${params.toString()}`
-  }, [base, address, trimmed, defaultAmount])
+  }, [base, address, trimmed, defaultAmount, currency])
   const qr = useQrDataUrl(link, 280)
 
   // Watch for payments that arrive while this panel is open.
@@ -117,7 +131,7 @@ export function ShopCard() {
       </div>
 
       <label className="mb-1 mt-3 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="shop-amount">
-        {t('Default amount in USDC (optional)')}
+        {t('Default price (optional)')}
       </label>
       <div className="field glass-inner flex items-center gap-2 rounded-2xl px-4 py-3 transition-shadow">
         <input
@@ -130,12 +144,37 @@ export function ShopCard() {
           className="min-w-0 flex-1 bg-transparent text-base font-medium tabular-nums outline-none placeholder:text-slate-300"
           style={{ color: 'var(--ink)' }}
         />
-        <span className="text-sm font-semibold" style={{ color: 'var(--subtle)' }}>
-          USDC
-        </span>
+        <select
+          aria-label={t('Currency')}
+          value={currency}
+          onChange={(e) => {
+            setCurrency(e.target.value)
+            localStorage.setItem(CURRENCY_KEY, e.target.value)
+          }}
+          className="rounded-lg bg-transparent py-1 text-sm font-semibold outline-none"
+          style={{ color: 'var(--ink-2)' }}
+        >
+          {FIAT_CURRENCIES.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.code === 'USD' ? 'USDC ($)' : c.code}
+            </option>
+          ))}
+        </select>
       </div>
+      {!isUsd && (
+        <p className="mt-2 text-xs" style={{ color: 'var(--subtle)' }}>
+          {preview.usdc && preview.rate
+            ? t('Customers pay the USDC worth {amount} {currency} at the current rate, about {usdc} USDC now ({source}). You receive USDC.', {
+                amount: Number(defaultAmount.fiat).toLocaleString(),
+                currency,
+                usdc: preview.usdc,
+                source: t(preview.rate.source),
+              })
+            : t('Customers pay the USDC worth this price at the rate on the day they pay. You receive USDC.')}
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap gap-2">
-        {QUICK_AMOUNTS.map((q) => (
+        {(isUsd ? QUICK_AMOUNTS : []).map((q) => (
           <button
             key={q}
             type="button"
@@ -167,7 +206,11 @@ export function ShopCard() {
             {trimmed || t('Your shop name')}
           </div>
           <div className="text-xs" style={{ color: 'var(--muted)' }}>
-            {defaultAmount.value ? t('Scan to pay {amount} USDC.', { amount: defaultAmount.value }) : t('Scan to pay. Customers choose the amount.')}
+            {defaultAmount.value
+              ? t('Scan to pay {amount} USDC.', { amount: defaultAmount.value })
+              : defaultAmount.fiat
+                ? t('Scan to pay {amount} {currency}.', { amount: Number(defaultAmount.fiat).toLocaleString(), currency })
+                : t('Scan to pay. Customers choose the amount.')}
           </div>
         </div>
         <div
