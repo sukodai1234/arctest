@@ -87,3 +87,13 @@ body {
   border-color: var(--focus);
   box-shadow: 0 0 0 3px rgba(133, 177, 237, 0.25);
 }
+
+/* Dropdown lists: the popup of a native select ignores translucent backgrounds, so give every option a solid theme-aware surface. */
+select {
+  color-scheme: inherit;
+}
+select option,
+select optgroup {
+  background-color: var(--surface-muted) !important;
+  color: var(--ink) !important;
+}
