@@ -345,4 +345,13 @@ export const zh: Record<string, string> = {
   "Remove row {n}": "删除第 {n} 行",
   "Add row": "添加一行",
   "Paste lines like \"address, amount\" into the first box to fill the rows. Up to {max} recipients. Each payment is a separate wallet confirmation.": "将“地址, 金额”格式的多行文本粘贴到第一个框即可自动填充各行。最多 {max} 位收款人。每笔付款都需在钱包中单独确认。",
+  "Shop name (required)": "店铺名称（必填）",
+  "Default amount in USDC (optional)": "默认金额，单位 USDC（选填）",
+  "Leave empty so customers choose": "留空则由顾客自行输入",
+  "Clear": "清除",
+  "Enter an amount greater than zero, with at most 6 decimals.": "请输入大于 0 的金额，最多 6 位小数。",
+  "Your shop name": "您的店铺名称",
+  "Scan to pay {amount} USDC.": "扫码支付 {amount} USDC。",
+  "Enter your shop name to create the payment code.": "输入店铺名称即可生成收款码。",
+  "Fix the amount to create the payment code.": "请修正金额以生成收款码。",
 }

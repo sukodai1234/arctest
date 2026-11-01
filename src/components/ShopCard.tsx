@@ -3,28 +3,40 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAccount } from 'wagmi'
 import { ArrowDownLeft, Check, Copy, Download, Radio } from 'lucide-react'
 import { toast } from 'sonner'
-import { Amount } from '@/onchain-money'
-import { shortAddress } from '@/lib/arc'
+import { Amount, parseAmount } from '@/onchain-money'
+import { ARC_CHAIN_ID, shortAddress } from '@/lib/arc'
 import { useQrDataUrl, useShareBase } from '@/hooks/useShareLink'
 import { useTransferHistory, type HistoryItem } from '@/hooks/useTransferHistory'
 
 const NAME_KEY = 'arcpay-shop-name'
+const AMOUNT_KEY = 'arcpay-shop-amount'
 const MAX_NAME = 40
+const QUICK_AMOUNTS = ['1', '5', '10', '20']
 
 export function ShopCard() {
   const t = useT()
   const { address, isConnected } = useAccount()
   const base = useShareBase()
   const [name, setName] = useState(() => localStorage.getItem(NAME_KEY) ?? '')
+  const [amountText, setAmountText] = useState(() => localStorage.getItem(AMOUNT_KEY) ?? '')
   const [copied, setCopied] = useState(false)
 
   const trimmed = name.trim()
+  const defaultAmount = useMemo(() => {
+    if (!amountText.trim()) return { value: undefined, invalid: false }
+    try {
+      const parsed = parseAmount(ARC_CHAIN_ID, amountText.trim())
+      return parsed.isPositive() ? { value: parsed.toString(), invalid: false } : { value: undefined, invalid: true }
+    } catch {
+      return { value: undefined, invalid: true }
+    }
+  }, [amountText])
   const link = useMemo(() => {
-    if (!base || !address) return undefined
-    const params = new URLSearchParams({ to: address })
-    if (trimmed) params.set('shop', trimmed)
+    if (!base || !address || !trimmed || defaultAmount.invalid) return undefined
+    const params = new URLSearchParams({ to: address, shop: trimmed })
+    if (defaultAmount.value) params.set('amount', defaultAmount.value)
     return `${base}/?${params.toString()}`
-  }, [base, address, trimmed])
+  }, [base, address, trimmed, defaultAmount])
   const qr = useQrDataUrl(link, 280)
 
   // Watch for payments that arrive while this panel is open.
@@ -54,6 +66,12 @@ export function ShopCard() {
   const total = arrivals.reduce((sum, i) => sum + i.raw, 0n)
   const decimals = arrivals[0]?.decimals ?? 6
 
+  const changeAmount = (value: string) => {
+    const clean = value.replace(/[^0-9.]/g, '')
+    setAmountText(clean)
+    localStorage.setItem(AMOUNT_KEY, clean)
+  }
+
   const copy = async () => {
     if (!link) return
     try {
@@ -79,7 +97,7 @@ export function ShopCard() {
   return (
     <section className="glass-card rounded-3xl p-5">
       <label className="mb-1 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="shop-name">
-        {t('Shop name')}
+        {t('Shop name (required)')}
       </label>
       <div className="field glass-inner rounded-2xl px-4 py-3 transition-shadow">
         <input
@@ -91,18 +109,65 @@ export function ShopCard() {
             localStorage.setItem(NAME_KEY, e.target.value)
           }}
           placeholder={t('e.g. Corner Coffee')}
+          required
+          aria-required="true"
           className="w-full bg-transparent text-base font-medium outline-none placeholder:text-slate-300"
           style={{ color: 'var(--ink)' }}
         />
       </div>
 
+      <label className="mb-1 mt-3 block text-xs font-medium" style={{ color: 'var(--muted)' }} htmlFor="shop-amount">
+        {t('Default amount in USDC (optional)')}
+      </label>
+      <div className="field glass-inner flex items-center gap-2 rounded-2xl px-4 py-3 transition-shadow">
+        <input
+          id="shop-amount"
+          value={amountText}
+          onChange={(e) => changeAmount(e.target.value)}
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder={t('Leave empty so customers choose')}
+          className="min-w-0 flex-1 bg-transparent text-base font-medium tabular-nums outline-none placeholder:text-slate-300"
+          style={{ color: 'var(--ink)' }}
+        />
+        <span className="text-sm font-semibold" style={{ color: 'var(--subtle)' }}>
+          USDC
+        </span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {QUICK_AMOUNTS.map((q) => (
+          <button
+            key={q}
+            type="button"
+            onClick={() => changeAmount(q)}
+            className="min-h-9 rounded-full px-3 text-xs font-semibold transition-colors hover:bg-[color:var(--hover)]"
+            style={{
+              background: amountText === q ? 'var(--accent)' : 'var(--surface-muted)',
+              color: amountText === q ? 'var(--on-accent)' : 'var(--ink-2)',
+            }}
+          >
+            ${q}
+          </button>
+        ))}
+        {amountText && (
+          <button type="button" onClick={() => changeAmount('')} className="min-h-9 rounded-full px-3 text-xs font-semibold" style={{ color: 'var(--muted)' }}>
+            {t('Clear')}
+          </button>
+        )}
+      </div>
+      {defaultAmount.invalid && (
+        <p role="alert" className="mt-2 text-xs" style={{ color: 'var(--danger)' }}>
+          {t('Enter an amount greater than zero, with at most 6 decimals.')}
+        </p>
+      )}
+
       <div className="mt-4 flex flex-col items-center gap-2">
         <div className="text-center">
           <div className="display text-lg font-bold" style={{ color: 'var(--ink)' }}>
-            {trimmed || t('Pay with USDC')}
+            {trimmed || t('Your shop name')}
           </div>
           <div className="text-xs" style={{ color: 'var(--muted)' }}>
-            {t('Scan to pay. Customers choose the amount.')}
+            {defaultAmount.value ? t('Scan to pay {amount} USDC.', { amount: defaultAmount.value }) : t('Scan to pay. Customers choose the amount.')}
           </div>
         </div>
         <div
@@ -112,8 +177,8 @@ export function ShopCard() {
           {qr ? (
             <img src={qr} alt={t('Shop payment QR code')} className="size-full" />
           ) : (
-            <span className="text-xs" style={{ color: 'var(--subtle)' }}>
-              {t('Preparing QR code...')}
+            <span className="px-6 text-center text-xs" style={{ color: 'var(--subtle)' }}>
+              {!trimmed ? t('Enter your shop name to create the payment code.') : defaultAmount.invalid ? t('Fix the amount to create the payment code.') : t('Preparing QR code...')}
             </span>
           )}
         </div>
@@ -133,7 +198,7 @@ export function ShopCard() {
         {qr ? (
           <a
             href={qr}
-            download={`${trimmed || 'shop'}-payment-qr.png`}
+            download={`${trimmed.replace(/[^\w-]+/g, '-') || 'shop'}-payment-qr.png`}
             className="flex min-h-12 items-center justify-center gap-2 rounded-2xl text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99]"
             style={{ background: 'var(--surface-muted)', color: 'var(--ink-2)' }}
           >

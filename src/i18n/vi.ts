@@ -345,4 +345,13 @@ export const vi: Record<string, string> = {
   "Remove row {n}": "Xóa dòng {n}",
   "Add row": "Thêm dòng",
   "Paste lines like \"address, amount\" into the first box to fill the rows. Up to {max} recipients. Each payment is a separate wallet confirmation.": "Dán các dòng dạng \"địa chỉ, số tiền\" vào ô đầu tiên để điền các dòng. Tối đa {max} người nhận. Mỗi khoản là một lần xác nhận riêng trong ví.",
+  "Shop name (required)": "Tên cửa hàng (bắt buộc)",
+  "Default amount in USDC (optional)": "Số tiền mặc định bằng USDC (không bắt buộc)",
+  "Leave empty so customers choose": "Để trống để khách tự nhập",
+  "Clear": "Xóa",
+  "Enter an amount greater than zero, with at most 6 decimals.": "Nhập số tiền lớn hơn 0, tối đa 6 chữ số thập phân.",
+  "Your shop name": "Tên cửa hàng của bạn",
+  "Scan to pay {amount} USDC.": "Quét để trả {amount} USDC.",
+  "Enter your shop name to create the payment code.": "Nhập tên cửa hàng để tạo mã thanh toán.",
+  "Fix the amount to create the payment code.": "Sửa số tiền để tạo mã thanh toán.",
 }
