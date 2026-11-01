@@ -1,5 +1,5 @@
 import { PercentChips } from './PercentChips'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAccount, useReadContract, useSwitchChain } from 'wagmi'
 import { useQueryClient } from '@tanstack/react-query'
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2'
@@ -146,43 +146,68 @@ export function SwapCard() {
   }
 
   const reset = () => {
+    setQuoting(false)
     setQuote(undefined)
     setDone(undefined)
     setError(null)
   }
 
-  const review = async () => {
-    if (!amountText || !address) return
-    setQuoting(true)
-    reset()
-    try {
-      const { AppKit } = await import('@circle-fin/app-kit')
-      const adapter = await getAdapter()
-      const estimate = await new AppKit().estimateSwap({
-        from: { adapter, chain: 'Arc_Testnet' },
-        tokenIn,
-        tokenOut,
-        amountIn: amountText,
-        config: { slippageBps: SLIPPAGE_BPS },
-      })
-      setQuote({
-        amountIn: amountText,
-        tokenIn,
-        tokenOut,
-        account: address,
-        output: estimate.estimatedOutput.amount,
-        outputToken: estimate.estimatedOutput.token,
-        fees: (estimate.fees ?? [])
-          .filter((f) => f.amount)
-          .map((f) => ({ label: f.type === 'provider' ? 'Provider fee' : 'Fee', value: `${f.amount} ${f.token}` })),
-      })
-    } catch (e) {
-      const message = swapError(e)
-      if (message) setError(message)
-    } finally {
-      setQuoting(false)
+  const wrongChain = isConnected && chainId !== ARC_CHAIN_ID
+  const [tick, setTick] = useState(0)
+  const canQuote = Boolean(amountText && address && connector && !insufficient && !wrongChain)
+
+  // Refresh the quote every 20 seconds while one is on screen.
+  useEffect(() => {
+    if (!canQuote || swapping) return
+    const id = setInterval(() => setTick((n) => n + 1), 20000)
+    return () => clearInterval(id)
+  }, [canQuote, swapping])
+
+  // Quote automatically shortly after the amount or tokens change.
+  useEffect(() => {
+    if (!canQuote || !amountText || !address || !connector) return
+    let cancelled = false
+    const run = async () => {
+      setQuoting(true)
+      try {
+        const { AppKit } = await import('@circle-fin/app-kit')
+        const provider = (await connector.getProvider()) as EIP1193Provider
+        const adapter = await createViemAdapterFromProvider({ provider })
+        const estimate = await new AppKit().estimateSwap({
+          from: { adapter, chain: 'Arc_Testnet' },
+          tokenIn,
+          tokenOut,
+          amountIn: amountText,
+          config: { slippageBps: SLIPPAGE_BPS },
+        })
+        if (cancelled) return
+        setError(null)
+        setQuote({
+          amountIn: amountText,
+          tokenIn,
+          tokenOut,
+          account: address,
+          output: estimate.estimatedOutput.amount,
+          outputToken: estimate.estimatedOutput.token,
+          fees: (estimate.fees ?? [])
+            .filter((f) => f.amount)
+            .map((f) => ({ label: f.type === 'provider' ? 'Provider fee' : 'Fee', value: `${f.amount} ${f.token}` })),
+        })
+      } catch (e) {
+        if (cancelled) return
+        setQuote(undefined)
+        const message = swapError(e)
+        if (message) setError(message)
+      } finally {
+        if (!cancelled) setQuoting(false)
+      }
     }
-  }
+    const timer = setTimeout(() => void run(), 600)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [canQuote, amountText, tokenIn, tokenOut, address, connector, tick])
 
   const swap = async () => {
     if (!quote || !quoteIsCurrent || !address) return
@@ -290,7 +315,7 @@ export function SwapCard() {
         </div>
         <div className="mt-1 flex items-center justify-between gap-2">
           <span className="display text-3xl font-bold tabular-nums" style={{ color: quoteIsCurrent ? 'var(--ink)' : 'var(--subtle)' }}>
-            {quoteIsCurrent && quote ? quote.output : '--'}
+            {quoteIsCurrent && quote ? quote.output : quoting && amountText ? <Loader2 className="size-6 animate-spin" aria-label={t('Getting quote...')} /> : '--'}
           </span>
           <TokenSelect
             label={t('Token to receive')}
@@ -349,21 +374,28 @@ export function SwapCard() {
               t('Swap {amount} {from} to {to}', { amount: quote.amountIn, from: labelOf(quote.tokenIn), to: labelOf(quote.tokenOut) })
             )}
           </button>
-        ) : (
+        ) : wrongChain ? (
           <button
-            disabled={!amountText || insufficient || busy}
-            onClick={() => void review()}
-            className="min-h-12 w-full rounded-2xl text-sm font-semibold text-[color:var(--on-accent)] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => void switchChainAsync({ chainId: ARC_CHAIN_ID })}
+            className="min-h-12 w-full rounded-2xl px-3 text-sm font-semibold text-[color:var(--on-accent)]"
             style={{ background: 'var(--accent)' }}
           >
-            {quoting ? (
+            {t('Switch to {chain}', { chain: 'Arc Testnet' })}
+          </button>
+        ) : (
+          <button
+            disabled
+            className="min-h-12 w-full rounded-2xl text-sm font-semibold text-[color:var(--on-accent)] disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: 'var(--accent)' }}
+          >
+            {quoting && amountText ? (
               <span className="flex items-center justify-center gap-2">
                 <Loader2 className="size-4 animate-spin" /> {t('Getting quote...')}
               </span>
             ) : insufficient ? (
               t('Insufficient balance')
             ) : (
-              t('Review quote')
+              t('Enter an amount')
             )}
           </button>
         )}

@@ -2,7 +2,7 @@ import { useT } from '@/lib/i18n'
 import { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeftRight, FileText, Gift, Target, HandCoins, QrCode, Repeat2, Store, Users, Wallet, X } from 'lucide-react'
+import { ArrowLeftRight, FileText, Gift, ScanLine, Target, HandCoins, QrCode, Repeat2, Store, Users, Wallet, X } from 'lucide-react'
 import { Header } from '@/components/Header'
 import { BalanceCard } from '@/components/BalanceCard'
 import { SendCard } from '@/components/SendCard'
@@ -19,6 +19,7 @@ import { InvoicesCard } from '@/components/InvoicesCard'
 import { SwapCard } from '@/components/SwapCard'
 import { GiftCard } from '@/components/GiftCard'
 import { FundCard } from '@/components/FundCard'
+import { PayCard } from '@/components/PayCard'
 import { PayFromNetwork } from '@/components/PayFromNetwork'
 import { ClaimGift } from '@/components/ClaimGift'
 import { isClaimRoute } from '@/lib/gift'
@@ -27,6 +28,7 @@ import { AddNetworkButton } from '@/components/AddNetworkButton'
 import { HISTORY_KEY } from '@/hooks/useTransferHistory'
 
 const NAV_ITEMS: NavItem[] = [
+  { id: 'pay', label: 'Pay', hint: 'Scan a QR code to pay', icon: <ScanLine className="size-4" /> },
   { id: 'wallet', label: 'Wallet', hint: 'Address and balances', icon: <Wallet className="size-4" /> },
   { id: 'tip', label: 'Tip', hint: 'Preset tip amounts', icon: <HandCoins className="size-4" /> },
   { id: 'request', label: 'Request payment', hint: 'Link and QR code', icon: <QrCode className="size-4" /> },
@@ -172,6 +174,7 @@ function MainApp() {
                   {activeItem.id === 'tip' && <TipCard onSent={handleSent} />}
                   {activeItem.id === 'request' && <RequestCard />}
                   {activeItem.id === 'shop' && <ShopCard />}
+                  {activeItem.id === 'pay' && <PayCard />}
                   {activeItem.id === 'fund' && <FundCard />}
                   {activeItem.id === 'gift' && <GiftCard />}
                   {activeItem.id === 'invoices' && <InvoicesCard />}
